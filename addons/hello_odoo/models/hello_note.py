@@ -7,5 +7,6 @@ class HelloNote(models.Model):
     _order = "create_date desc"
 
     name = fields.Char(required=True)
+    reference = fields.Char(help="Free-form reference, e.g. a ticket or order number")
     body = fields.Text()
     active = fields.Boolean(default=True)

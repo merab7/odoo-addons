@@ -6,6 +6,7 @@
         <field name="arch" type="xml">
             <list>
                 <field name="name"/>
+                <field name="reference"/>
                 <field name="create_date"/>
             </list>
         </field>
@@ -19,6 +20,7 @@
                 <sheet>
                     <group>
                         <field name="name"/>
+                        <field name="reference"/>
                         <field name="active"/>
                     </group>
                     <field name="body" placeholder="Write something..."/>
