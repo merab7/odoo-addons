@@ -1,0 +1,92 @@
+name: build-and-promote
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+  ECR_REPOSITORY: odoo
+  GITOPS_REPO: merab7/odoo-eks
+  OVERLAY_PATH: gitops/apps/odoo/overlays/dev
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::846898691082:role/odoo-test-gha-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: push
+        name: Build and push by digest
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${ECR_REPOSITORY}"
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "${IMAGE}:${GITHUB_SHA}" \
+            --cache-from "type=gha" \
+            --cache-to   "type=gha,mode=max" \
+            --push .
+          DIGEST=$(docker buildx imagetools inspect "${IMAGE}:${GITHUB_SHA}" \
+                    --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}"   >> "$GITHUB_OUTPUT"
+
+      - name: Vulnerability gate (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.push.outputs.image }}:${{ github.sha }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  promote-dev:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+
+      - name: Install kustomize
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Pin the new digest
+        run: |
+          set -euo pipefail
+          cd "${OVERLAY_PATH}"
+          kustomize edit set image \
+            odoo-app=${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet && { echo "no change"; exit 0; }
+          git commit -m "dev: odoo @ ${{ needs.build.outputs.digest }} (from ${GITHUB_SHA::7})"
+          git push
