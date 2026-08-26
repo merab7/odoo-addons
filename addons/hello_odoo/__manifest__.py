@@ -1,7 +1,7 @@
 {
     "name": "Hello Odoo",
-    "version": "19.0.1.1.0",
-    "summary": "Minimal example addon used to prove the EKS delivery pipeline",
+    "version": "19.0.1.0.0",
+    "summary": "Minimal example addon used to prove the EKS delivery pipeline that i have vhange to test it works",
     "author": "merab7",
     "license": "LGPL-3",
     "category": "Tools",
